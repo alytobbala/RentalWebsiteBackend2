@@ -7,8 +7,7 @@ const router = express.Router();
 
 const allowedOrigins = ['https://tobbala.netlify.app', 'http://localhost:3000'];
 
-app.use(express.json());
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -16,10 +15,15 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
-}));
+  credentials: true,
+};
 
-app.options('*', cors());
+// Apply globally
+app.use(cors(corsOptions));
+
+// Also apply to preflight OPTIONS
+app.options('*', cors(corsOptions));
+
 
 const rentalsRouter = require("./routes/Rentals");
 app.use("/rentals", rentalsRouter);
