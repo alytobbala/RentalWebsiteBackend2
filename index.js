@@ -5,7 +5,7 @@ const db = require("./models");
 const router = express.Router();
 
 
-const allowedOrigins = ['https://tobbala.netlify.app', 'http://localhost:3000'];
+const allowedOrigins = ['https://tobbala.netlify.app', 'http://localhost:3000', 'http://localhost:5173'];
 
 const corsOptions = {
   origin: function (origin, callback) {

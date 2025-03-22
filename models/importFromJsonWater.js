@@ -3,13 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const Sequelize = require('sequelize');
+const sequelize = require('./getSequelizeInstance'); // path might be '../utils/getSequelizeInstance'
 
-const env = process.env.NODE_ENV || 'development';
-const config = require("../config/config.json");
 
-const sequelize = env === "development"
-  ? new Sequelize(config.development.database, config.development.username, config.development.password, config.development)
-  : new Sequelize(config.production.database, config.production.username, config.production.password, config.production);
 
 // Load the cleaned JSON file
 const electricityWaterData = require("../ElectricityWaterPrices.json");

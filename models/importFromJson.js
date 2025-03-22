@@ -3,13 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const Sequelize = require('sequelize');
+const sequelize = require('./getSequelizeInstance'); // path might be '../utils/getSequelizeInstance'
 
-// Load Sequelize config (adjust the path if necessary)
-const env = process.env.NODE_ENV || 'development';
-const config = require("../config/config.json");
 
-const sequelize = env==="development"? new Sequelize(config.development.database, config.development.username, config.development.password, config.development) :
-new Sequelize(config.production.database, config.production.username, config.production.password, config.production);
 
 // Load your JSON file (make sure the path is correct)
 const apartmentsData = require("../apartments2.json");
