@@ -3,7 +3,7 @@ const path = require('path');
 const Sequelize = require('sequelize');
 const process = require('process');
 const basename = path.basename(__filename);
-const env = process.env.NODE_ENV || 'development';
+const env = process.env.NODE_ENV || 'production';
 const config = require(path.join(__dirname, '/../config/config.json'))[env];
 const db = {};
 
@@ -52,6 +52,9 @@ Object.keys(db).forEach(modelName => {
     db[modelName].associate(db);
   }
 });
+
+console.log("NODE_ENV:", env);
+console.log("Using config:", config);
 
 // Integrate dynamic models from importFromJson.js
  const dynamicModels = require(path.join(__dirname, 'importFromJson'));
