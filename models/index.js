@@ -8,18 +8,25 @@ const config = require(path.join(__dirname, '/../config/config.json'))[env];
 const db = {};
 
 let sequelize;
-if (config.use_env_variable) {
+if (config.use_env_variable && process.env[config.use_env_variable]) {
+  console.log("🔒 Using env variable:", config.use_env_variable);
   sequelize = new Sequelize(process.env[config.use_env_variable], {
     dialect: config.dialect,
     dialectOptions: {
       ssl: {
         require: true,
-        rejectUnauthorized: false
-      }
-    }
+        rejectUnauthorized: false,
+      },
+    },
   });
 } else {
-  sequelize = new Sequelize(config.database, config.username, config.password, config);
+  console.log("🛠 Using manual config (dev/local)");
+  sequelize = new Sequelize(
+    config.database,
+    config.username,
+    config.password,
+    config
+  );
 }
 
 // Load static models (excluding importFromJson.js)
