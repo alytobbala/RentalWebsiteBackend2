@@ -13,8 +13,8 @@ const apartmentsData = require("../apartments2.json");
 // Object to hold dynamically defined models
 const db = {};
 
-// Process only the first 10 apartments if needed
-const apartmentsToProcess = apartmentsData.slice(0, 10);
+// Process the first 11 apartments (including pharmacy)
+const apartmentsToProcess = apartmentsData.slice(0, 11);
 
 apartmentsToProcess.forEach(apartment => {
   const records = apartment.data;
@@ -45,6 +45,13 @@ apartmentsToProcess.forEach(apartment => {
       defaultValue: (typeof sampleValue === 'number') ? 0 : ''
     };
   });
+  
+  // Add tenant field manually to all rental models
+  modelFields['tenant'] = {
+    type: Sequelize.DataTypes.STRING,
+    allowNull: true,
+    defaultValue: 'No tenant'
+  };
   
   // Create a model name (for example, "RentalsEight" for apartment "Eight")
   const modelName = `Rentals${apartment.apartment.replace(/\s+/g, '')}`;

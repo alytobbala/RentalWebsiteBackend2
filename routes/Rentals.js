@@ -41,12 +41,282 @@ const rentalsSeven = db.Rentalsappartment7;
 const rentalsEight = db.Rentalsappartment8;
 const rentalsNine = db.Rentalsappartment9;
 const rentalsTenEleven = db.Rentalsappartment10; 
+const rentalsPharmacy = db.Rentalspharmacy;
 const WaterElectricBills = db.ElectricityWater;
 const accountsModel = accounts(sequelize, DataTypes);
 const waterbills = waterBillsModel(sequelize, DataTypes);
 const electricBills = electricBillsModel(sequelize, DataTypes);
+const apartmentBaseValuesModel = require("../models/apartmentBaseValues");
+const ApartmentBaseValues = apartmentBaseValuesModel(sequelize, DataTypes);
 
 var allRentals = [];
+
+// API endpoints for apartment base values (must be before catch-all routes)
+
+// Get all apartment base values
+router.get("/base-values", async (req, res) => {
+  console.log("🔍 GET /base-values endpoint hit!");
+  try {
+    const baseValues = await ApartmentBaseValues.findAll({
+      order: [['apartmentNumber', 'ASC']]
+    });
+    console.log("📊 Found base values:", baseValues.length);
+    res.json(baseValues);
+  } catch (error) {
+    console.error("❌ Error fetching base values:", error);
+    res.status(500).json({ error: "Failed to fetch base values" });
+  }
+});
+
+// Get base values for a specific apartment
+router.get("/base-values/:apartmentNumber", async (req, res) => {
+  try {
+    const { apartmentNumber } = req.params;
+    const baseValues = await ApartmentBaseValues.findOne({
+      where: { apartmentNumber }
+    });
+    
+    if (!baseValues) {
+      return res.status(404).json({ error: "Base values not found for this apartment" });
+    }
+    
+    res.json(baseValues);
+  } catch (error) {
+    console.error("Error fetching base values:", error);
+    res.status(500).json({ error: "Failed to fetch base values" });
+  }
+});
+
+// Create or update base values for an apartment
+router.put("/base-values/:apartmentNumber", async (req, res) => {
+  try {
+    const { apartmentNumber } = req.params;
+    const { baseRent, baseDoorman, baseMaintenance, baseCorridor, tenant, tenantContactInfo, updatedBy } = req.body;
+    
+    // Validate required fields (baseCorridor is optional, only for pharmacy)
+    if (baseRent === undefined || baseDoorman === undefined || baseMaintenance === undefined) {
+      return res.status(400).json({ error: "All base values (rent, doorman, maintenance) are required" });
+    }
+
+    const [baseValues, created] = await ApartmentBaseValues.upsert({
+      apartmentNumber,
+      baseRent: parseFloat(baseRent),
+      baseDoorman: parseFloat(baseDoorman),
+      baseMaintenance: parseFloat(baseMaintenance),
+      baseCorridor: baseCorridor !== undefined ? parseFloat(baseCorridor) : null,
+      tenant: tenant || "",
+      tenantContactInfo: tenantContactInfo || "",
+      lastUpdated: new Date(),
+      updatedBy: updatedBy || "admin"
+    });
+
+    const message = created ? "Base values created successfully" : "Base values updated successfully";
+    res.json({ message, baseValues });
+  } catch (error) {
+    console.error("Error updating base values:", error);
+    res.status(500).json({ error: "Failed to update base values" });
+  }
+});
+
+// Initialize default base values for all apartments
+router.post("/base-values/initialize", async (req, res) => {
+  try {
+    const apartments = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10-11", "Pharmacy"];
+    
+    const promises = apartments.map(apartmentNumber => {
+      // Different defaults for pharmacy vs apartments
+      const defaultValues = apartmentNumber === "Pharmacy" ? {
+        baseRent: 0,
+        baseDoorman: 0,
+        baseMaintenance: 0,
+        baseCorridor: 0,
+        lastUpdated: new Date(),
+        updatedBy: "system"
+      } : {
+        baseRent: 0,
+        baseDoorman: 100,
+        baseMaintenance: 10,
+        baseCorridor: null,
+        lastUpdated: new Date(),
+        updatedBy: "system"
+      };
+
+      return ApartmentBaseValues.findOrCreate({
+        where: { apartmentNumber },
+        defaults: { ...defaultValues, apartmentNumber }
+      });
+    });
+
+    await Promise.all(promises);
+    res.json({ message: "Default base values initialized for all apartments and pharmacy" });
+  } catch (error) {
+    console.error("Error initializing base values:", error);
+    res.status(500).json({ error: "Failed to initialize base values" });
+  }
+});
+
+// Delete base values for an apartment
+router.delete("/base-values/:apartmentNumber", async (req, res) => {
+  try {
+    const { apartmentNumber } = req.params;
+    const deleted = await ApartmentBaseValues.destroy({
+      where: { apartmentNumber }
+    });
+
+    if (deleted === 0) {
+      return res.status(404).json({ error: "Base values not found for this apartment" });
+    }
+
+    res.json({ message: "Base values deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting base values:", error);
+    res.status(500).json({ error: "Failed to delete base values" });
+  }
+});
+
+// Diagnostic endpoint to check current tenant values
+router.get("/check-tenant-values", async (req, res) => {
+  try {
+    console.log("🔍 Starting tenant values check...");
+    
+    const apartmentModels = {
+      "1": rentalsOne,
+      "2": rentalsTwo,
+      "3": rentalsThree,
+      "4": rentalsFour,
+      "5": rentalsFive,
+      "6": rentalsSix,
+      "7": rentalsSeven,
+      "8": rentalsEight,
+      "9": rentalsNine,
+      "10-11": rentalsTenEleven
+    };
+    
+    const results = {};
+    
+    for (const [apartmentNumber, model] of Object.entries(apartmentModels)) {
+      try {
+        console.log(`\n📋 Checking apartment ${apartmentNumber}...`);
+        console.log(`Model name: ${model.name}`);
+        console.log(`Table name: ${model.tableName}`);
+        
+        // Try to get one record to see actual columns
+        const sampleRecord = await model.findOne({ raw: true });
+        const actualColumns = sampleRecord ? Object.keys(sampleRecord) : [];
+        console.log(`Actual columns in table: ${actualColumns.join(', ')}`);
+        
+        // Check model attributes
+        const modelAttributes = Object.keys(model.rawAttributes);
+        console.log(`Model attributes: ${modelAttributes.join(', ')}`);
+        
+        const hasTenantInModel = modelAttributes.includes('tenant');
+        const hasTenantInDB = actualColumns.includes('tenant');
+        
+        console.log(`Has tenant in model: ${hasTenantInModel}`);
+        console.log(`Has tenant in database: ${hasTenantInDB}`);
+        
+        if (hasTenantInDB) {
+          // Try to get tenant values
+          const tenantCounts = await model.findAll({
+            attributes: [
+              'tenant',
+              [db.sequelize.fn('COUNT', db.sequelize.col('tenant')), 'count']
+            ],
+            group: ['tenant'],
+            raw: true
+          });
+          
+          results[apartmentNumber] = {
+            status: 'success',
+            hasTenantsColumn: true,
+            tenantCounts,
+            modelName: model.name,
+            tableName: model.tableName,
+            modelAttributes: modelAttributes,
+            dbColumns: actualColumns
+          };
+        } else {
+          results[apartmentNumber] = {
+            status: 'no_tenant_column',
+            hasTenantsColumn: false,
+            modelName: model.name,
+            tableName: model.tableName,
+            modelAttributes: modelAttributes,
+            dbColumns: actualColumns,
+            hasTenantInModel,
+            message: "tenant column does not exist in database table"
+          };
+        }
+      } catch (error) {
+        console.error(`❌ Error processing apartment ${apartmentNumber}:`, error.message);
+        results[apartmentNumber] = {
+          status: 'error',
+          error: error.message,
+          hasTenantsColumn: false
+        };
+      }
+    }
+    
+    console.log("✅ Tenant values check complete");
+    res.json(results);
+  } catch (error) {
+    console.error("❌ Error checking tenant values:", error);
+    res.status(500).json({ error: "Failed to check tenant values" });
+  }
+});
+
+// Force sync rental tables to add missing tenant columns
+router.post("/sync-rental-tables", async (req, res) => {
+  try {
+    console.log("🔄 Starting rental table sync...");
+    
+    const apartmentModels = {
+      "1": rentalsOne,
+      "2": rentalsTwo,
+      "3": rentalsThree,
+      "4": rentalsFour,
+      "5": rentalsFive,
+      "6": rentalsSix,
+      "7": rentalsSeven,
+      "8": rentalsEight,
+      "9": rentalsNine,
+      "10-11": rentalsTenEleven
+    };
+    
+    const results = [];
+    
+    for (const [apartmentNumber, model] of Object.entries(apartmentModels)) {
+      try {
+        console.log(`Syncing table for apartment ${apartmentNumber}...`);
+        await model.sync({ alter: true });
+        console.log(`✅ Successfully synced table for apartment ${apartmentNumber}`);
+        results.push({
+          apartmentNumber,
+          status: 'success',
+          message: 'Table synced successfully'
+        });
+      } catch (error) {
+        console.error(`❌ Error syncing apartment ${apartmentNumber}:`, error.message);
+        results.push({
+          apartmentNumber,
+          status: 'error',
+          message: error.message
+        });
+      }
+    }
+    
+    console.log("🎉 Rental table sync complete!");
+    
+    res.json({
+      message: "Rental table sync completed",
+      results
+    });
+    
+  } catch (error) {
+    console.error("❌ Error during rental table sync:", error);
+    res.status(500).json({ error: "Failed to sync rental tables" });
+  }
+});
 
 console.log("Here is WaterElectricBills", WaterElectricBills);
 
@@ -81,6 +351,9 @@ const checkrental = async (req, res, number) => {
       break;
     case "10-11":
       rentals = rentalsTenEleven;
+      break;
+    case "pharmacy":
+      rentals = rentalsPharmacy;
       break;
     case "electricity":
       rentals = WaterElectricBills;
@@ -131,6 +404,7 @@ router.get("/all", async (req, res) => {
       rentalsEight.findAll(),
       rentalsNine.findAll(),
       rentalsTenEleven.findAll(),
+      rentalsPharmacy.findAll(),
     ];
 
     const results = await Promise.all(promises);
@@ -389,6 +663,9 @@ router.get("/:number", (req, res) => {
     case "10-11":
       rentalsTenEleven.findAll().then((rentals) => res.json(rentals));
       break;
+    case "pharmacy":
+      rentalsPharmacy.findAll().then((rentals) => res.json(rentals));
+      break;
     case "electricity":
       console.log("Entered in electricity case");
       WaterElectricBills
@@ -593,6 +870,12 @@ router.post("/:number(\\d+)", async (req, res) => {
   checkrental(req, res, number);
 });
 
+// POST route for pharmacy
+router.post("/pharmacy", async (req, res) => {
+  console.log("Entered pharmacy post route")
+  checkrental(req, res, "pharmacy");
+});
+
 router.get("/", (req, res) => {
   rentalsOne.findAll().then((rentals) => res.json(rentals));
 });
@@ -701,6 +984,15 @@ router.delete("/:number/:id", async (req, res) => {
         })
         .then(() => res.json("Deleted"));
       break;
+    case "pharmacy":
+      await rentalsPharmacy
+        .destroy({
+          where: {
+            id: id,
+          },
+        })
+        .then(() => res.json("Deleted"));
+      break;
     case "electricity":
       await WaterElectricBills
         .destroy({
@@ -712,6 +1004,94 @@ router.delete("/:number/:id", async (req, res) => {
       break;
     default:
       res.json("Invalid number");
+  }
+});
+
+// One-time migration: Update all rental entries with N/A tenants to use base values
+router.post("/migrate-tenant-data", async (req, res) => {
+  try {
+    console.log("🔄 Starting tenant data migration...");
+    
+    // Get all base values with tenant information
+    const baseValues = await ApartmentBaseValues.findAll();
+    console.log(`📊 Found ${baseValues.length} base value entries`);
+    
+    const apartmentModels = {
+      "1": rentalsOne,
+      "2": rentalsTwo,
+      "3": rentalsThree,
+      "4": rentalsFour,
+      "5": rentalsFive,
+      "6": rentalsSix,
+      "7": rentalsSeven,
+      "8": rentalsEight,
+      "9": rentalsNine,
+      "10-11": rentalsTenEleven
+    };
+    
+    let totalUpdated = 0;
+    const results = [];
+    
+    for (const baseValue of baseValues) {
+      const apartmentNumber = baseValue.apartmentNumber;
+      const newTenant = baseValue.tenant || "";
+      
+      // Skip if no base tenant is set
+      if (!newTenant.trim()) {
+        console.log(`⏭️  Skipping apartment ${apartmentNumber} - no base tenant set`);
+        continue;
+      }
+      
+      const model = apartmentModels[apartmentNumber];
+      if (!model) {
+        console.log(`❌ No model found for apartment ${apartmentNumber}`);
+        continue;
+      }
+      
+      // First, let's check what tenant values exist
+      const allEntries = await model.findAll({
+        attributes: ['tenant'],
+        group: ['tenant']
+      });
+      console.log(`🔍 Apartment ${apartmentNumber} existing tenant values:`, allEntries.map(e => `"${e.tenant}"`));
+      
+      // Update all entries where tenant is "No tenant", "N/A", empty, or null
+      const [updatedCount] = await model.update(
+        { tenant: newTenant },
+        {
+          where: {
+            [db.Sequelize.Op.or]: [
+              { tenant: "No tenant" },
+              { tenant: "N/A" },
+              { tenant: "" },
+              { tenant: null }
+            ]
+          }
+        }
+      );
+      
+      console.log(`✅ Apartment ${apartmentNumber}: Updated ${updatedCount} entries with tenant "${newTenant}"`);
+      totalUpdated += updatedCount;
+      
+      results.push({
+        apartmentNumber,
+        newTenant,
+        updatedCount,
+        existingValues: allEntries.map(e => e.tenant)
+      });
+    }
+    
+    console.log(`🎉 Migration complete! Total entries updated: ${totalUpdated}`);
+    
+    res.json({
+      message: "Tenant data migration completed successfully",
+      totalUpdated,
+      results
+    });
+    
+  } catch (error) {
+    console.error("❌ Error during tenant migration:", error);
+    res.status(500).json({ error: "Failed to migrate tenant data" });
   }
 });
 
