@@ -198,6 +198,9 @@ app.use("/rentals", rentalsRouter);
 const depositsRouter = require("./routes/Deposits");
 app.use("/deposits", depositsRouter);
 
+const garageRouter = require("./routes/Garage");
+app.use("/garage", garageRouter);
+
 // Export cache functions for use in routes
 app.locals.getCachedRentals = getCachedRentals;
 app.locals.invalidateCache = invalidateCache;

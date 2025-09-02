@@ -29,7 +29,12 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: true,
             defaultValue: 0,
         },
-        Maintenace: {
+        Maintenance: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+        },
+        AppartmentElectricity: {
             type: DataTypes.DECIMAL(10, 2),
             allowNull: true,
             defaultValue: 0,

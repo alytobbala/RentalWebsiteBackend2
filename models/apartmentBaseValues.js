@@ -26,6 +26,16 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: true,
             defaultValue: 0,
         },
+        baseCarPrice: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: false,
+            defaultValue: 200,
+        },
+        garageKeeperFees: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: false,
+            defaultValue: 50,
+        },
         tenant: {
             type: DataTypes.STRING,
             allowNull: true,

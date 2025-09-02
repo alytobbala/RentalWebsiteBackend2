@@ -32,8 +32,8 @@ const rentalsNine = rentalsNineModel(sequelize, DataTypes);
 const rentalsTenEleven = rentalsTenElevenModel(sequelize, DataTypes);  */
 
 const rentalsOne = db.Rentalsappartment1;
-const rentalsThree = db.Rentalsappartment2;
-const rentalsTwo = db.Rentalsappartment3;
+const rentalsTwo = db.Rentalsappartment2;
+const rentalsThree = db.Rentalsappartment3;
 const rentalsFour = db.Rentalsappartment4;
 const rentalsFive = db.Rentalsappartment5;
 const rentalsSix = db.Rentalsappartment6;
@@ -48,6 +48,175 @@ const waterbills = waterBillsModel(sequelize, DataTypes);
 const electricBills = electricBillsModel(sequelize, DataTypes);
 const apartmentBaseValuesModel = require("../models/apartmentBaseValues");
 const ApartmentBaseValues = apartmentBaseValuesModel(sequelize, DataTypes);
+
+// Helper function to enrich rental data with electricity/water values
+const enrichRentalDataWithElectricityWater = async (rentalEntries, apartmentNumber) => {
+  if (!rentalEntries || rentalEntries.length === 0) {
+    return rentalEntries;
+  }
+
+  try {
+    // Get all unique month/year combinations from rental entries
+    const uniquePeriods = [...new Set(rentalEntries.map(entry => `${entry.Month}/${entry.Year}`))];
+    
+    // Fetch all electricity/water data for these periods
+    const electricityWaterData = await WaterElectricBills.findAll({
+      where: {
+        Month: rentalEntries.map(entry => entry.Month),
+        Year: rentalEntries.map(entry => entry.Year)
+      }
+    });
+
+    // Create a lookup map for quick access
+    const electricityWaterMap = {};
+    electricityWaterData.forEach(record => {
+      const key = `${record.Month}/${record.Year}`;
+      electricityWaterMap[key] = record;
+    });
+
+    // Determine which field to use for DoormanWaterAndElectricity based on apartment number
+    const getDoormanWaterElectricValue = (electricityRecord, aptNumber) => {
+      const aptNum = parseInt(aptNumber);
+      if (aptNum >= 1 && aptNum <= 5) {
+        return electricityRecord.TotalForAllToFive || 0;
+      } else if (aptNum >= 6 && aptNum <= 11) {
+        return electricityRecord.TotalForAllTo11 || 0;
+      }
+      return 0;
+    };
+
+    // Enrich each rental entry
+    const enrichedEntries = rentalEntries.map(entry => {
+      const periodKey = `${entry.Month}/${entry.Year}`;
+      const electricityRecord = electricityWaterMap[periodKey];
+
+      if (electricityRecord) {
+        return {
+          ...entry.toJSON(),
+          Water: electricityRecord.WaterBillDivided || 0,
+          DoormanWaterAndElectricity: getDoormanWaterElectricValue(electricityRecord, apartmentNumber)
+        };
+      }
+
+      return entry.toJSON();
+    });
+
+    console.log(`✅ Enriched ${enrichedEntries.length} rental entries for apartment ${apartmentNumber} with electricity/water data`);
+    return enrichedEntries;
+
+  } catch (error) {
+    console.error('❌ Error enriching rental data with electricity/water values:', error);
+    // Return original data if enrichment fails
+    return rentalEntries.map(entry => entry.toJSON());
+  }
+};
+
+// Helper function to create rental entries for all apartments when new electricity/water bill is added
+const createRentalEntriesForNewBill = async (month, year, electricityWaterRecord) => {
+  console.log(`🏢 Creating rental entries for all apartments for ${month}/${year}`);
+  
+  try {
+    // Get all base values for apartments
+    const baseValues = await ApartmentBaseValues.findAll({
+      order: [['apartmentNumber', 'ASC']]
+    });
+
+    if (!baseValues || baseValues.length === 0) {
+      console.log('⚠️ No base values found, skipping rental entry creation');
+      return;
+    }
+
+    // Define apartment models mapping
+    const apartmentModels = {
+      1: rentalsOne,
+      2: rentalsTwo,
+      3: rentalsThree,
+      4: rentalsFour,
+      5: rentalsFive,
+      6: rentalsSix,
+      7: rentalsSeven,
+      8: rentalsEight,
+      9: rentalsNine,
+      10: rentalsTenEleven,
+      11: rentalsTenEleven
+    };
+
+    // Process each apartment
+    for (const baseValue of baseValues) {
+      const aptNumber = baseValue.apartmentNumber;
+      
+      // Skip non-numeric apartment entries like "Pharmacy" and "10-11"
+      if (aptNumber === "Pharmacy" || aptNumber === "10-11") {
+        console.log(`⚠️ Skipping special entry: ${aptNumber}`);
+        continue;
+      }
+
+      const apartmentModel = apartmentModels[parseInt(aptNumber)];
+      
+      if (!apartmentModel) {
+        console.log(`⚠️ No model found for apartment ${aptNumber}, skipping`);
+        continue;
+      }
+
+      // Check if entry already exists for this month/year
+      const existingEntry = await apartmentModel.findOne({
+        where: {
+          Month: month,
+          Year: year
+        }
+      });
+
+      if (existingEntry) {
+        console.log(`📋 Entry already exists for apartment ${aptNumber} for ${month}/${year}, skipping`);
+        continue;
+      }
+
+      // Determine which electricity/water values to use based on apartment number
+      const waterValue = electricityWaterRecord.WaterBillDivided || 0;
+      const aptNum = parseInt(aptNumber);
+      const doormanWaterElectricValue = (aptNum >= 1 && aptNum <= 5) 
+        ? electricityWaterRecord.TotalForAllToFive || 0
+        : electricityWaterRecord.TotalForAllTo11 || 0;
+
+      // Create new rental entry with base values (using correct field names)
+      const newEntry = {
+        Year: year,
+        Month: month,
+        Rent: baseValue.baseRent || "0.00",
+        Doorman: baseValue.baseDoorman || "0.00", 
+        Maintenance: baseValue.baseMaintenance || "0.00",
+        Elevator: baseValue.baseCorridor || "0.00", // baseCorridor maps to Elevator field
+        Water: waterValue,
+        DoormanWaterAndElectricity: doormanWaterElectricValue,
+        AppartmentElectricity: 0, // Default to 0, will be populated when individual apartment bills are added
+        Total: "0.00", // Will be calculated by frontend
+        paid: false,
+        paidFromDeposit: null,
+        paymentSource: null,
+        actuallyPaid: "0.00",
+        tenant: baseValue.tenant || ""
+      };
+
+      // Add apartment-specific fields if they exist (for apartments with extended schemas)
+      if (aptNumber === "2") {
+        // Apartment 2 has additional fields
+        newEntry.actualRent = 0;
+        newEntry.Prepaid = 0;
+        newEntry.PrepaidWaterElectricity = 0;
+        newEntry.Comments = "0.00";
+      }
+
+      await apartmentModel.create(newEntry);
+      console.log(`✅ Created rental entry for apartment ${aptNumber} for ${month}/${year}`);
+    }
+
+    console.log(`🎉 Successfully created rental entries for all apartments for ${month}/${year}`);
+    
+  } catch (error) {
+    console.error(`❌ Error creating rental entries for ${month}/${year}:`, error);
+    throw error;
+  }
+};
 
 var allRentals = [];
 
@@ -91,7 +260,7 @@ router.get("/base-values/:apartmentNumber", async (req, res) => {
 router.put("/base-values/:apartmentNumber", async (req, res) => {
   try {
     const { apartmentNumber } = req.params;
-    const { baseRent, baseDoorman, baseMaintenance, baseCorridor, tenant, tenantContactInfo, updatedBy } = req.body;
+    const { baseRent, baseDoorman, baseMaintenance, baseCorridor, baseCarPrice, garageKeeperFees, tenant, tenantContactInfo, updatedBy } = req.body;
     
     // Validate required fields (baseCorridor is optional, only for pharmacy)
     if (baseRent === undefined || baseDoorman === undefined || baseMaintenance === undefined) {
@@ -104,6 +273,8 @@ router.put("/base-values/:apartmentNumber", async (req, res) => {
       baseDoorman: parseFloat(baseDoorman),
       baseMaintenance: parseFloat(baseMaintenance),
       baseCorridor: baseCorridor !== undefined ? parseFloat(baseCorridor) : null,
+      baseCarPrice: baseCarPrice !== undefined ? parseFloat(baseCarPrice) : 200,
+      garageKeeperFees: garageKeeperFees !== undefined ? parseFloat(garageKeeperFees) : 50,
       tenant: tenant || "",
       tenantContactInfo: tenantContactInfo || "",
       lastUpdated: new Date(),
@@ -130,6 +301,7 @@ router.post("/base-values/initialize", async (req, res) => {
         baseDoorman: 0,
         baseMaintenance: 0,
         baseCorridor: 0,
+        baseCarPrice: 200,
         lastUpdated: new Date(),
         updatedBy: "system"
       } : {
@@ -137,6 +309,7 @@ router.post("/base-values/initialize", async (req, res) => {
         baseDoorman: 100,
         baseMaintenance: 10,
         baseCorridor: null,
+        baseCarPrice: 200,
         lastUpdated: new Date(),
         updatedBy: "system"
       };
@@ -721,6 +894,15 @@ router.get("/:number", async (req, res) => {
   const getCachedRentals = req.app.locals.getCachedRentals;
   const databaseStatus = req.app.locals.databaseStatus;
   
+  // Check if client wants to bypass cache (cache-busting)
+  const bypassCache = req.headers['cache-control'] === 'no-cache' || 
+                     req.headers['pragma'] === 'no-cache' ||
+                     req.query._t; // Cache-busting timestamp parameter
+  
+  if (bypassCache) {
+    console.log(`🔄 Cache bypass requested for apartment ${number}`);
+  }
+  
   // If database is disconnected due to query limits, try to serve from cache
   if (!databaseStatus.connected && databaseStatus.error && databaseStatus.error.includes('max_questions')) {
     console.log(`⚠️ Database limit exceeded, attempting to serve cached data for apartment ${number}`);
@@ -731,43 +913,53 @@ router.get("/:number", async (req, res) => {
     let rentals;
     switch (number) {
       case "1":
-        rentals = getCachedRentals ? await getCachedRentals("1", rentalsOne) : await rentalsOne.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("1", rentalsOne) : await rentalsOne.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 1);
         res.json(rentals);
         break;
       case "2":
-        rentals = getCachedRentals ? await getCachedRentals("2", rentalsTwo) : await rentalsTwo.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("2", rentalsTwo) : await rentalsTwo.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 2);
         res.json(rentals);
         break;
       case "3":
-        rentals = getCachedRentals ? await getCachedRentals("3", rentalsThree) : await rentalsThree.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("3", rentalsThree) : await rentalsThree.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 3);
         res.json(rentals);
         break;
       case "4":
-        rentals = getCachedRentals ? await getCachedRentals("4", rentalsFour) : await rentalsFour.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("4", rentalsFour) : await rentalsFour.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 4);
         res.json(rentals);
         break;
       case "5":
-        rentals = getCachedRentals ? await getCachedRentals("5", rentalsFive) : await rentalsFive.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("5", rentalsFive) : await rentalsFive.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 5);
         res.json(rentals);
         break;
       case "6":
-        rentals = getCachedRentals ? await getCachedRentals("6", rentalsSix) : await rentalsSix.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("6", rentalsSix) : await rentalsSix.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 6);
         res.json(rentals);
         break;
       case "7":
-        rentals = getCachedRentals ? await getCachedRentals("7", rentalsSeven) : await rentalsSeven.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("7", rentalsSeven) : await rentalsSeven.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 7);
         res.json(rentals);
         break;
       case "8":
-        rentals = getCachedRentals ? await getCachedRentals("8", rentalsEight) : await rentalsEight.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("8", rentalsEight) : await rentalsEight.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 8);
         res.json(rentals);
         break;
       case "9":
-        rentals = getCachedRentals ? await getCachedRentals("9", rentalsNine) : await rentalsNine.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("9", rentalsNine) : await rentalsNine.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 9);
         res.json(rentals);
         break;
       case "10-11":
-        rentals = getCachedRentals ? await getCachedRentals("10", rentalsTenEleven) : await rentalsTenEleven.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("10", rentalsTenEleven) : await rentalsTenEleven.findAll();
+        rentals = await enrichRentalDataWithElectricityWater(rentals, 10);
         res.json(rentals);
         break;
       case "pharmacy":
@@ -777,7 +969,7 @@ router.get("/:number", async (req, res) => {
             data: []
           });
         }
-        rentals = getCachedRentals ? await getCachedRentals("pharmacy", rentalsPharmacy) : await rentalsPharmacy.findAll();
+        rentals = (getCachedRentals && !bypassCache) ? await getCachedRentals("pharmacy", rentalsPharmacy) : await rentalsPharmacy.findAll();
         res.json(rentals);
         break;
       case "electricity":
@@ -969,7 +1161,17 @@ router.post("/electricity/:name", async (req, res) => {
       existing.comments = comments;
 
       await existing.save();
-      return res.status(200).json({message: "Entry Updated" , entry: existing});
+
+      // Check if rental entries exist for all apartments for this period, create if missing
+      try {
+        await createRentalEntriesForNewBill(Number(Month), Number(Year), existing);
+        console.log(`✅ Ensured rental entries exist for all apartments for ${Month}/${Year}`);
+      } catch (entryError) {
+        console.error(`⚠️ Failed to ensure rental entries for ${Month}/${Year}:`, entryError);
+        // Don't fail the whole request if rental entries creation fails
+      }
+
+      return res.status(200).json({message: "Entry Updated and rental entries ensured" , entry: existing});
     }
     // If not found, create a new entry
     const newEntry = await WaterElectricBills.create({
@@ -989,7 +1191,17 @@ router.post("/electricity/:name", async (req, res) => {
       comments});
 
     await newEntry.save();
-    res.status(201).json({ message: "Entry created", entry: newEntry });
+
+    // Create rental entries for all apartments with this new electricity/water data
+    try {
+      await createRentalEntriesForNewBill(Number(Month), Number(Year), newEntry);
+      console.log(`✅ Successfully created rental entries for all apartments for ${Month}/${Year}`);
+    } catch (entryError) {
+      console.error(`⚠️ Failed to create rental entries for ${Month}/${Year}:`, entryError);
+      // Don't fail the whole request if rental entries creation fails
+    }
+
+    res.status(201).json({ message: "Entry created and rental entries added for all apartments", entry: newEntry });
   } catch (error) {
     console.error("Error saving entry:", error);
     res.status(500).json({ error: "Server error" });
@@ -1206,122 +1418,95 @@ router.put("/:number/:id", async (req, res) => {
 router.delete("/:number/:id", async (req, res) => {
   const number = req.params.number;
   const id = req.params.id;
-  switch (number) {
-    case "1":
-      await rentalsOne
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "2":
-      await rentalsTwo
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "3":
-      await rentalsThree
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "4":
-      await rentalsFour
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "5":
-      await rentalsFive
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "6":
-      await rentalsSix
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "7":
-      await rentalsSeven
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "8":
-      await rentalsEight
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "9":
-      await rentalsNine
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "10-11":
-      await rentalsTenEleven
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "pharmacy":
-      if (!rentalsPharmacy) {
-        return res.status(503).json({ 
-          error: "Pharmacy table not yet created. Cannot delete entries." 
+  
+  try {
+    let result;
+    
+    switch (number) {
+      case "1":
+        result = await rentalsOne.destroy({
+          where: { id: id },
         });
-      }
-      await rentalsPharmacy
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    case "electricity":
-      await WaterElectricBills
-        .destroy({
-          where: {
-            id: id,
-          },
-        })
-        .then(() => res.json("Deleted"));
-      break;
-    default:
-      res.json("Invalid number");
+        break;
+      case "2":
+        result = await rentalsTwo.destroy({
+          where: { id: id },
+        });
+        break;
+      case "3":
+        result = await rentalsThree.destroy({
+          where: { id: id },
+        });
+        break;
+      case "4":
+        result = await rentalsFour.destroy({
+          where: { id: id },
+        });
+        break;
+      case "5":
+        result = await rentalsFive.destroy({
+          where: { id: id },
+        });
+        break;
+      case "6":
+        result = await rentalsSix.destroy({
+          where: { id: id },
+        });
+        break;
+      case "7":
+        result = await rentalsSeven.destroy({
+          where: { id: id },
+        });
+        break;
+      case "8":
+        result = await rentalsEight.destroy({
+          where: { id: id },
+        });
+        break;
+      case "9":
+        result = await rentalsNine.destroy({
+          where: { id: id },
+        });
+        break;
+      case "10-11":
+        result = await rentalsTenEleven.destroy({
+          where: { id: id },
+        });
+        break;
+      case "pharmacy":
+        if (!rentalsPharmacy) {
+          return res.status(503).json({ 
+            error: "Pharmacy table not yet created. Cannot delete entries." 
+          });
+        }
+        result = await rentalsPharmacy.destroy({
+          where: { id: id },
+        });
+        break;
+      case "electricity":
+        result = await WaterElectricBills.destroy({
+          where: { id: id },
+        });
+        break;
+      default:
+        return res.status(400).json({ error: "Invalid apartment number" });
+    }
+
+    if (result === 0) {
+      return res.status(404).json({ error: "Entry not found" });
+    }
+    
+    // Invalidate cache for this apartment to ensure fresh data on next request
+    const invalidateCache = req.app.locals.invalidateCache;
+    if (invalidateCache) {
+      invalidateCache(number);
+      console.log(`🗑️ Cache invalidated for apartment ${number} after deletion`);
+    }
+    
+    res.json({ message: "Deleted", rowsDeleted: result });
+  } catch (error) {
+    console.error("Error deleting entry:", error);
+    res.status(500).json({ error: "Internal server error", details: error.message });
   }
 });
 
