@@ -16,6 +16,46 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: true,
             defaultValue: 0,
         },
+        Rent: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+        },
+        Doorman: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+        },
+        Maintenace: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+        },
+        totalBill: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+        },
+        actuallyPaid: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+        },
+        paid: {
+            type: DataTypes.BOOLEAN,
+            allowNull: true,
+            defaultValue: false,
+        },
+        paidFromDeposit: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: null,
+        },
+        paymentSource: {
+            type: DataTypes.STRING,
+            allowNull: true,
+            defaultValue: null,
+        },
         tenant: {
             type: DataTypes.STRING,
             allowNull: true,

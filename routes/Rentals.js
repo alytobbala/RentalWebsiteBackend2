@@ -41,7 +41,7 @@ const rentalsSeven = db.Rentalsappartment7;
 const rentalsEight = db.Rentalsappartment8;
 const rentalsNine = db.Rentalsappartment9;
 const rentalsTenEleven = db.Rentalsappartment10; 
-const rentalsPharmacy = db.Rentalspharmacy;
+const rentalsPharmacy = db.Rentalspharmacy || null; // Safe fallback if table doesn't exist yet
 const WaterElectricBills = db.ElectricityWater;
 const accountsModel = accounts(sequelize, DataTypes);
 const waterbills = waterBillsModel(sequelize, DataTypes);
@@ -353,6 +353,11 @@ const checkrental = async (req, res, number) => {
       rentals = rentalsTenEleven;
       break;
     case "pharmacy":
+      if (!rentalsPharmacy) {
+        return res.status(503).json({ 
+          error: "Pharmacy table not yet created. Please wait for server initialization to complete." 
+        });
+      }
       rentals = rentalsPharmacy;
       break;
     case "electricity":
@@ -393,25 +398,35 @@ const checkrental = async (req, res, number) => {
 //get all rentals
 router.get("/all", async (req, res) => {
   try {
+    const getCachedRentals = req.app.locals.getCachedRentals;
+    
+    console.log("🏢 Fetching all rental data...");
+    
+    // Use cached data if available
     const promises = [
-      rentalsOne.findAll(),
-      rentalsTwo.findAll(),
-      rentalsThree.findAll(),
-      rentalsFour.findAll(),
-      rentalsFive.findAll(),
-      rentalsSix.findAll(),
-      rentalsSeven.findAll(),
-      rentalsEight.findAll(),
-      rentalsNine.findAll(),
-      rentalsTenEleven.findAll(),
-      rentalsPharmacy.findAll(),
+      getCachedRentals ? getCachedRentals("1", rentalsOne) : rentalsOne.findAll(),
+      getCachedRentals ? getCachedRentals("2", rentalsTwo) : rentalsTwo.findAll(),
+      getCachedRentals ? getCachedRentals("3", rentalsThree) : rentalsThree.findAll(),
+      getCachedRentals ? getCachedRentals("4", rentalsFour) : rentalsFour.findAll(),
+      getCachedRentals ? getCachedRentals("5", rentalsFive) : rentalsFive.findAll(),
+      getCachedRentals ? getCachedRentals("6", rentalsSix) : rentalsSix.findAll(),
+      getCachedRentals ? getCachedRentals("7", rentalsSeven) : rentalsSeven.findAll(),
+      getCachedRentals ? getCachedRentals("8", rentalsEight) : rentalsEight.findAll(),
+      getCachedRentals ? getCachedRentals("9", rentalsNine) : rentalsNine.findAll(),
+      getCachedRentals ? getCachedRentals("10", rentalsTenEleven) : rentalsTenEleven.findAll(),
     ];
 
+    // Add pharmacy only if the model exists
+    if (rentalsPharmacy) {
+      promises.push(getCachedRentals ? getCachedRentals("pharmacy", rentalsPharmacy) : rentalsPharmacy.findAll());
+    }
+
     const results = await Promise.all(promises);
+    console.log(`✅ Retrieved data for ${promises.length} apartments`);
 
     // Flatten the results array
     const flattenedRentals = results.reduce((acc, rentals) => {
-      if (rentals.length !== 0) {
+      if (rentals && rentals.length !== 0) {
         acc.push(...rentals);
       }
       return acc;
@@ -419,11 +434,24 @@ router.get("/all", async (req, res) => {
 
     res.json(flattenedRentals);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
-  } finally {
-    // Clear the array after sending the response
-    allRentals = [];
+    console.error("❌ Error in /all endpoint:", error.message);
+    
+    // Handle different types of database errors
+    if (error.message.includes('max_questions')) {
+      res.status(503).json({ 
+        error: "Database query limit exceeded", 
+        message: "Please wait for query limit to reset. Try refreshing in a few minutes.",
+        data: []
+      });
+    } else if (error.message.includes('max_user_connections')) {
+      res.status(503).json({ 
+        error: "Database connection limit exceeded", 
+        message: "Too many concurrent connections. Please try again in a moment.",
+        data: []
+      });
+    } else {
+      res.status(500).json({ error: "Internal Server Error" });
+    }
   }
 });
 
@@ -471,6 +499,62 @@ router.post("/api/check-authentication", async (req, res) => {
         res.json({ authenticated: false });
       }
     });
+});
+
+// Get one rental entry by apartment number and ID
+router.get("/:number/id/:id", async (req, res) => {
+  const number = req.params.number;
+  const id = req.params.id;
+  
+  try {
+    let result;
+    switch (number) {
+      case "1":
+        result = await rentalsOne.findOne({ where: { id: id } });
+        break;
+      case "2":
+        result = await rentalsTwo.findOne({ where: { id: id } });
+        break;
+      case "3":
+        result = await rentalsThree.findOne({ where: { id: id } });
+        break;
+      case "4":
+        result = await rentalsFour.findOne({ where: { id: id } });
+        break;
+      case "5":
+        result = await rentalsFive.findOne({ where: { id: id } });
+        break;
+      case "6":
+        result = await rentalsSix.findOne({ where: { id: id } });
+        break;
+      case "7":
+        result = await rentalsSeven.findOne({ where: { id: id } });
+        break;
+      case "8":
+        result = await rentalsEight.findOne({ where: { id: id } });
+        break;
+      case "9":
+        result = await rentalsNine.findOne({ where: { id: id } });
+        break;
+      case "10":
+        result = await rentalsTenEleven.findOne({ where: { id: id } });
+        break;
+      case "pharmacy":
+        result = await rentalsPharmacy.findOne({ where: { id: id } });
+        break;
+      default:
+        return res.status(400).json({ error: "Invalid apartment number" });
+    }
+
+    if (result) {
+      res.json(result);
+    } else {
+      res.status(404).json({ error: "Record not found" });
+    }
+  } catch (error) {
+    console.error("Error fetching rental entry:", error);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 // get all rentals for a specific number and a specific month
@@ -630,58 +714,108 @@ router.get("/:number/:month", (req, res) => {
   }
 });
 
-router.get("/:number", (req, res) => {
+router.get("/:number", async (req, res) => {
   const number = req.params.number;
-  switch (number) {
-    case "1":
-      rentalsOne.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "2":
-      rentalsTwo.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "3":
-      rentalsThree.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "4":
-      rentalsFour.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "5":
-      rentalsFive.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "6":
-      rentalsSix.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "7":
-      rentalsSeven.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "8":
-      rentalsEight.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "9":
-      rentalsNine.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "10-11":
-      rentalsTenEleven.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "pharmacy":
-      rentalsPharmacy.findAll().then((rentals) => res.json(rentals));
-      break;
-    case "electricity":
-      console.log("Entered in electricity case");
-      WaterElectricBills
-        .findAll()
-        .then((electricitybills) => res.json(electricitybills));
-      break;
-    case "water":
-      console.log("Entered in water case");
-      waterbills.findAll().then((waterbills) => {
-        res.json(waterbills);
-        console.log(waterbills);
+  
+  // Access cache functions from app.locals
+  const getCachedRentals = req.app.locals.getCachedRentals;
+  const databaseStatus = req.app.locals.databaseStatus;
+  
+  // If database is disconnected due to query limits, try to serve from cache
+  if (!databaseStatus.connected && databaseStatus.error && databaseStatus.error.includes('max_questions')) {
+    console.log(`⚠️ Database limit exceeded, attempting to serve cached data for apartment ${number}`);
+    // Note: We'll implement cache fallback logic here
+  }
+  
+  try {
+    let rentals;
+    switch (number) {
+      case "1":
+        rentals = getCachedRentals ? await getCachedRentals("1", rentalsOne) : await rentalsOne.findAll();
+        res.json(rentals);
+        break;
+      case "2":
+        rentals = getCachedRentals ? await getCachedRentals("2", rentalsTwo) : await rentalsTwo.findAll();
+        res.json(rentals);
+        break;
+      case "3":
+        rentals = getCachedRentals ? await getCachedRentals("3", rentalsThree) : await rentalsThree.findAll();
+        res.json(rentals);
+        break;
+      case "4":
+        rentals = getCachedRentals ? await getCachedRentals("4", rentalsFour) : await rentalsFour.findAll();
+        res.json(rentals);
+        break;
+      case "5":
+        rentals = getCachedRentals ? await getCachedRentals("5", rentalsFive) : await rentalsFive.findAll();
+        res.json(rentals);
+        break;
+      case "6":
+        rentals = getCachedRentals ? await getCachedRentals("6", rentalsSix) : await rentalsSix.findAll();
+        res.json(rentals);
+        break;
+      case "7":
+        rentals = getCachedRentals ? await getCachedRentals("7", rentalsSeven) : await rentalsSeven.findAll();
+        res.json(rentals);
+        break;
+      case "8":
+        rentals = getCachedRentals ? await getCachedRentals("8", rentalsEight) : await rentalsEight.findAll();
+        res.json(rentals);
+        break;
+      case "9":
+        rentals = getCachedRentals ? await getCachedRentals("9", rentalsNine) : await rentalsNine.findAll();
+        res.json(rentals);
+        break;
+      case "10-11":
+        rentals = getCachedRentals ? await getCachedRentals("10", rentalsTenEleven) : await rentalsTenEleven.findAll();
+        res.json(rentals);
+        break;
+      case "pharmacy":
+        if (!rentalsPharmacy) {
+          return res.status(503).json({ 
+            error: "Pharmacy table not yet created. Please wait for server initialization to complete.",
+            data: []
+          });
+        }
+        rentals = getCachedRentals ? await getCachedRentals("pharmacy", rentalsPharmacy) : await rentalsPharmacy.findAll();
+        res.json(rentals);
+        break;
+      case "electricity":
+        console.log("Entered in electricity case");
+        // Don't cache electricity bills for now as they're less frequently accessed
+        const electricityBills = await WaterElectricBills.findAll();
+        res.json(electricityBills);
+        break;
+      case "water":
+        console.log("Entered in water case");
+        // Don't cache water bills for now as they're less frequently accessed
+        const waterBills = await waterbills.findAll();
+        res.json(waterBills);
+        break;
+      default:
+        res.json("Invalid number");
+    }
+  } catch (error) {
+    console.error(`Error fetching data for apartment ${number}:`, error.message);
+    
+    // Handle different types of database errors
+    if (error.message.includes('max_questions') && getCachedRentals) {
+      console.log(`🚨 Query limit hit, serving stale cache for apartment ${number}`);
+      res.status(503).json({ 
+        error: "Database query limit exceeded", 
+        message: "Please wait for query limit to reset",
+        data: []
       });
-      break;
-
-    default:
-      res.json("Invalid number");
+    } else if (error.message.includes('max_user_connections')) {
+      console.log(`🔌 Connection limit hit for apartment ${number}`);
+      res.status(503).json({ 
+        error: "Database connection limit exceeded", 
+        message: "Too many concurrent connections. Please try again in a moment.",
+        data: []
+      });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 
@@ -889,6 +1023,185 @@ router.post("/", async (req, res) => {
     .then((submittedRental) => res.json(submittedRental));
 });
 
+//Update one rental entry with specific number and id
+router.put("/:number/:id", async (req, res) => {
+  const number = req.params.number;
+  const id = req.params.id;
+  const updateData = req.body;
+  
+  console.log(`PUT request - Apartment: ${number}, ID: ${id}`);
+  console.log("Update data:", updateData);
+  
+  // Invalidate cache at the start to ensure fresh data
+  const invalidateCache = req.app.locals.invalidateCache;
+  if (invalidateCache) {
+    console.log(`🔄 Pre-invalidating cache for apartment ${number} before update`);
+    invalidateCache(number);
+  }
+  
+  try {
+    let result;
+    let existingRecord = null; // Track if record exists for all apartments
+    
+    switch (number) {
+      case "1":
+        console.log("Using rentalsOne model for apartment 1");
+        
+        // Check if the record exists first
+        existingRecord = await rentalsOne.findOne({ where: { id: id } });
+        console.log("Existing record found:", existingRecord ? "YES" : "NO");
+        if (existingRecord) {
+          console.log("Record details:", existingRecord.toJSON());
+        }
+        
+        result = await rentalsOne.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        console.log("Update result:", result);
+        break;
+      case "2":
+        console.log("Using rentalsTwo model for apartment 2");
+        
+        existingRecord = await rentalsTwo.findOne({ where: { id: id } });
+        console.log("Existing record found:", existingRecord ? "YES" : "NO");
+        if (existingRecord) {
+          console.log("Before update - Current paid status:", existingRecord.paid);
+        }
+        
+        result = await rentalsTwo.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        console.log("Raw update result:", JSON.stringify(result));
+        
+        // Verify the update actually happened
+        const updatedRecord = await rentalsTwo.findOne({ where: { id: id } });
+        if (updatedRecord) {
+          console.log("After update - New paid status:", updatedRecord.paid);
+          console.log("Update verification: Value changed from", existingRecord?.paid, "to", updatedRecord.paid);
+        }
+        break;
+      case "3":
+        console.log("Using rentalsThree model for apartment 3");
+        
+        existingRecord = await rentalsThree.findOne({ where: { id: id } });
+        console.log("Existing record found:", existingRecord ? "YES" : "NO");
+        
+        result = await rentalsThree.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      case "4":
+        console.log("Using rentalsFour model for apartment 4");
+        
+        existingRecord = await rentalsFour.findOne({ where: { id: id } });
+        console.log("Existing record found:", existingRecord ? "YES" : "NO");
+        
+        result = await rentalsFour.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      case "5":
+        console.log("Using rentalsFive model for apartment 5");
+        
+        // Track query usage
+        const trackQuery = req.app.locals.trackQuery;
+        if (trackQuery) trackQuery();
+        
+        // First, let's check if the record exists
+        existingRecord = await rentalsFive.findOne({ where: { id: id } });
+        console.log("Existing record found:", existingRecord ? "YES" : "NO");
+        if (existingRecord) {
+          console.log("Record details:", existingRecord.toJSON());
+        }
+        
+        if (trackQuery) trackQuery(); // Track the update query too
+        result = await rentalsFive.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        console.log("Update result:", result);
+        break;
+      case "6":
+        result = await rentalsSix.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      case "7":
+        result = await rentalsSeven.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      case "8":
+        result = await rentalsEight.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      case "9":
+        result = await rentalsNine.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      case "10":
+        result = await rentalsTenEleven.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      case "pharmacy":
+        if (!rentalsPharmacy) {
+          return res.status(404).json({ error: "Pharmacy table not found" });
+        }
+        result = await rentalsPharmacy.update(updateData, {
+          where: { id: id },
+          returning: true
+        });
+        break;
+      default:
+        return res.status(400).json({ error: "Invalid apartment number" });
+    }
+    
+    console.log("Final result for apartment", number, ":", result);
+    
+    // Get cache invalidation function
+    const invalidateCache = req.app.locals.invalidateCache;
+    
+    // Use consistent logic for all apartments
+    if (existingRecord) {
+      // Record exists, so even if result[0] is 0 or undefined, it's a successful operation
+      
+      // Invalidate cache IMMEDIATELY after any successful operation
+      if (invalidateCache) {
+        console.log(`🔄 Invalidating cache for apartment ${number} after update`);
+        invalidateCache(number);
+        console.log(`✅ Cache invalidated for apartment ${number}`);
+      } else {
+        console.log(`❌ invalidateCache function not available`);
+      }
+      
+      res.json({ 
+        message: (result && result[0] > 0) ? "Entry updated successfully" : "Entry found but no changes needed", 
+        updatedRows: result ? result[0] : 0,
+        recordExists: true,
+        cacheInvalidated: !!invalidateCache
+      });
+    } else {
+      // Record doesn't exist
+      res.status(404).json({ error: "Entry not found" });
+    }
+  } catch (error) {
+    console.error("Error updating entry:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 //Delete one rental enty with specific number and id
 router.delete("/:number/:id", async (req, res) => {
   const number = req.params.number;
@@ -985,6 +1298,11 @@ router.delete("/:number/:id", async (req, res) => {
         .then(() => res.json("Deleted"));
       break;
     case "pharmacy":
+      if (!rentalsPharmacy) {
+        return res.status(503).json({ 
+          error: "Pharmacy table not yet created. Cannot delete entries." 
+        });
+      }
       await rentalsPharmacy
         .destroy({
           where: {
@@ -1092,6 +1410,42 @@ router.post("/migrate-tenant-data", async (req, res) => {
   } catch (error) {
     console.error("❌ Error during tenant migration:", error);
     res.status(500).json({ error: "Failed to migrate tenant data" });
+  }
+});
+
+// Manual cache clearing endpoint for debugging
+router.delete("/cache/:number", (req, res) => {
+  const number = req.params.number;
+  const invalidateCache = req.app.locals.invalidateCache;
+  
+  if (invalidateCache) {
+    invalidateCache(number);
+    res.json({ 
+      message: `Cache cleared for apartment ${number}`,
+      apartment: number,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    res.status(500).json({ error: "Cache invalidation function not available" });
+  }
+});
+
+// Clear all cache endpoint
+router.delete("/cache", (req, res) => {
+  const invalidateCache = req.app.locals.invalidateCache;
+  
+  if (invalidateCache) {
+    // Clear cache for all apartments
+    const apartments = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "pharmacy"];
+    apartments.forEach(apt => invalidateCache(apt));
+    
+    res.json({ 
+      message: "All cache cleared",
+      apartments: apartments,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    res.status(500).json({ error: "Cache invalidation function not available" });
   }
 });
 

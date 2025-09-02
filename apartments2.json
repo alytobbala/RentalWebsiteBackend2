@@ -12,7 +12,11 @@
         "DoormanWaterAndElectricity": 0,
         "Water": 0,
         "Elevator": 0,
-        "Total": 110
+        "Total": 110,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null,
+        "actuallyPaid": 0
       },
       {
         "Year": 2022,
@@ -474,6 +478,9 @@
         "Water": 0,
         "Elevator": 0,
         "Total": 133.725,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null,
         "actuallyPaid": 200,
         "Prepaid": 1200,
         "PrepaidWaterElectricity": 400,
@@ -1086,6 +1093,9 @@
         "Water": 0,
         "Elevator": 0,
         "Total": 110,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null,
         "PrepaidEverything": 0,
         "Comments": 0
       },
@@ -1586,7 +1596,10 @@
         "Elevator": 0,
         "Total": 33.725,
         "PrepaidEverything": 0,
-        "Comments": 0
+        "Comments": 0,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null
       },
       {
         "Year": 2022,
@@ -2085,6 +2098,9 @@
         "Water": 0,
         "Elevator": 0,
         "Total": 133.725,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null,
         "actuallyPaid": 200,
         "comments": 0
       },
@@ -2620,7 +2636,11 @@
         "DoormanWaterAndElectricity": 0,
         "Water": 0,
         "Elevator": 70,
-        "Total": 180
+        "Total": 180,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null,
+        "actuallyPaid": 0
       },
       {
         "Year": 2022,
@@ -3045,7 +3065,10 @@
         "Elevator": 70,
         "Total": 203.725,
         "actuallyPaid": 250,
-        "comments": 0
+        "comments": 0,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null
       },
       {
         "Year": 2022,
@@ -3542,7 +3565,10 @@
         "DoormanWaterAndElectricity": 0,
         "Water": 0,
         "Elevator": 70,
-        "Total": 180
+        "Total": 180,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null
       },
       {
         "Year": 2022,
@@ -3965,7 +3991,10 @@
         "DoormanWaterAndElectricity": 0,
         "Water": 0,
         "Elevator": 70,
-        "Total": 180
+        "Total": 180,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null
       },
       {
         "Year": 2022,
@@ -4388,7 +4417,10 @@
         "DoormanWaterAndElectricity": 0,
         "Water": 0,
         "Elevator": 140,
-        "Total": 360
+        "Total": 360,
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null
       },
       {
         "Year": 2022,
@@ -4809,7 +4841,10 @@
         "corridor_rent": 0,
         "Total": 0,
         "tenant": "No tenant",
-        "comments": ""
+        "comments": "",
+        "paid": false,
+        "paidFromDeposit": null,
+        "paymentSource": null
       }
     ]
   }

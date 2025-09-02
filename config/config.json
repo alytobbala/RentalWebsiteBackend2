@@ -7,10 +7,12 @@
     "port": "3306",
     "dialect": "mysql",
     "pool": {
-      "max": 2,
+      "max": 1,
       "min": 0,
-      "acquire": 30000,
-      "idle": 10000
+      "acquire": 60000,
+      "idle": 5000,
+      "evict": 1000,
+      "handleDisconnects": true
     },
     "logging": false
   },
