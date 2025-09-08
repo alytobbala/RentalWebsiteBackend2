@@ -8,6 +8,10 @@ const router = express.Router();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Register deleteOldRentals route
+const deleteOldRentalsRoute = require('./routes/deleteOldRentals');
+app.use('/admin', deleteOldRentalsRoute);
+
 const allowedOrigins = ['https://tobbala.netlify.app', 'http://localhost:3000', 'http://localhost:5173'];
 
 const corsOptions = {
@@ -200,6 +204,9 @@ app.use("/deposits", depositsRouter);
 
 const garageRouter = require("./routes/Garage");
 app.use("/garage", garageRouter);
+
+const deductionsRouter = require("./routes/Deductions");
+app.use("/deductions", deductionsRouter);
 
 // Export cache functions for use in routes
 app.locals.getCachedRentals = getCachedRentals;

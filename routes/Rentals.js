@@ -48,6 +48,8 @@ const waterbills = waterBillsModel(sequelize, DataTypes);
 const electricBills = electricBillsModel(sequelize, DataTypes);
 const apartmentBaseValuesModel = require("../models/apartmentBaseValues");
 const ApartmentBaseValues = apartmentBaseValuesModel(sequelize, DataTypes);
+const deductionsModel = require("../models/deductions");
+const Deductions = deductionsModel(sequelize, DataTypes);
 
 // Helper function to enrich rental data with electricity/water values
 const enrichRentalDataWithElectricityWater = async (rentalEntries, apartmentNumber) => {
@@ -91,10 +93,15 @@ const enrichRentalDataWithElectricityWater = async (rentalEntries, apartmentNumb
       const electricityRecord = electricityWaterMap[periodKey];
 
       if (electricityRecord) {
+        // Check if this is apartment 10-11 (two merged apartments)
+        const isApartment1011 = apartmentNumber === 10; // Since we pass 10 for apartment 10-11
+        const waterValue = electricityRecord.WaterBillDivided || 0;
+        const doormanWaterElectricValue = getDoormanWaterElectricValue(electricityRecord, apartmentNumber);
+        
         return {
           ...entry.toJSON(),
-          Water: electricityRecord.WaterBillDivided || 0,
-          DoormanWaterAndElectricity: getDoormanWaterElectricValue(electricityRecord, apartmentNumber)
+          Water: waterValue * (isApartment1011 ? 2 : 1), // Double for apartment 10-11
+          DoormanWaterAndElectricity: doormanWaterElectricValue * (isApartment1011 ? 2 : 1) // Double for apartment 10-11
         };
       }
 
@@ -145,13 +152,20 @@ const createRentalEntriesForNewBill = async (month, year, electricityWaterRecord
     for (const baseValue of baseValues) {
       const aptNumber = baseValue.apartmentNumber;
       
-      // Skip non-numeric apartment entries like "Pharmacy" and "10-11"
-      if (aptNumber === "Pharmacy" || aptNumber === "10-11") {
+      // Skip non-apartment entries like "Pharmacy" and "Garage"
+      if (aptNumber === "Pharmacy" || aptNumber === "Garage") {
         console.log(`⚠️ Skipping special entry: ${aptNumber}`);
         continue;
       }
 
-      const apartmentModel = apartmentModels[parseInt(aptNumber)];
+      let apartmentModel;
+      
+      // Handle apartment 10-11 specially
+      if (aptNumber === "10-11") {
+        apartmentModel = rentalsTenEleven;
+      } else {
+        apartmentModel = apartmentModels[parseInt(aptNumber)];
+      }
       
       if (!apartmentModel) {
         console.log(`⚠️ No model found for apartment ${aptNumber}, skipping`);
@@ -167,27 +181,69 @@ const createRentalEntriesForNewBill = async (month, year, electricityWaterRecord
       });
 
       if (existingEntry) {
-        console.log(`📋 Entry already exists for apartment ${aptNumber} for ${month}/${year}, skipping`);
+        console.log(`📋 Entry already exists for apartment ${aptNumber} for ${month}/${year}, updating with new values`);
+        // Debug logging for apartment 10-11 updates
+        if (isApartment1011) {
+          console.log(`🔍 DEBUG Apartment 10-11 UPDATE:`, {
+            aptNumber,
+            waterValue,
+            doormanWaterElectricValue,
+            waterValueDoubled: waterValue * 2,
+            doormanWaterElectricValueDoubled: doormanWaterElectricValue * 2
+          });
+        }
+        // Update the existing entry with new water and doorman/water/electric values
+        await existingEntry.update({
+          Water: waterValue * (isApartment1011 ? 2 : 1),
+          DoormanWaterAndElectricity: doormanWaterElectricValue * (isApartment1011 ? 2 : 1)
+        });
+        console.log(`✅ Updated apartment ${aptNumber} entry for ${month}/${year}`);
         continue;
       }
 
       // Determine which electricity/water values to use based on apartment number
       const waterValue = electricityWaterRecord.WaterBillDivided || 0;
       const aptNum = parseInt(aptNumber);
-      const doormanWaterElectricValue = (aptNum >= 1 && aptNum <= 5) 
-        ? electricityWaterRecord.TotalForAllToFive || 0
-        : electricityWaterRecord.TotalForAllTo11 || 0;
+      
+      // Determine doorman water/electric value based on apartment number
+      let doormanWaterElectricValue;
+      if (aptNum >= 1 && aptNum <= 5) {
+        doormanWaterElectricValue = electricityWaterRecord.TotalForAllToFive || 0;
+      } else {
+        doormanWaterElectricValue = electricityWaterRecord.TotalForAllTo11 || 0;
+      }
 
-      // Create new rental entry with base values (using correct field names)
+      // Calculate multiplier for apartment 10-11 (it's two apartments merged)
+      const isApartment1011 = aptNumber === "10-11";
+
+      // Debug logging for apartment 10-11
+      if (isApartment1011) {
+        console.log(`🔍 DEBUG Apartment 10-11:`, {
+          aptNumber,
+          waterValue,
+          doormanWaterElectricValue,
+          waterValueDoubled: waterValue * 2,
+          doormanWaterElectricValueDoubled: doormanWaterElectricValue * 2,
+          isApartment1011
+        });
+        console.log(`💾 DEBUG newEntry for Apartment 10-11:`, {
+          Water: waterValue * (isApartment1011 ? 2 : 1),
+          DoormanWaterAndElectricity: doormanWaterElectricValue * (isApartment1011 ? 2 : 1)
+        });
+      }
+
+  // Debug: Log maintenance value for each apartment
+  console.log(`DEBUG: Creating entry for apt ${aptNumber} with baseMaintenance:`, baseValue.baseMaintenance);
+  // Create new rental entry with base values (using correct field names)
       const newEntry = {
         Year: year,
         Month: month,
         Rent: baseValue.baseRent || "0.00",
-        Doorman: baseValue.baseDoorman || "0.00", 
-        Maintenance: baseValue.baseMaintenance || "0.00",
-        Elevator: baseValue.baseCorridor || "0.00", // baseCorridor maps to Elevator field
-        Water: waterValue,
-        DoormanWaterAndElectricity: doormanWaterElectricValue,
+        Doorman: (baseValue.baseDoorman || 0) * (isApartment1011 ? 2 : 1), 
+  Maintenance: (baseValue.baseMaintenance || 0) * (isApartment1011 ? 2 : 1),
+  Elevator: (["6","7","8","9","10-11"].includes(aptNumber) ? (baseValue.baseElevator || 0) * (isApartment1011 ? 2 : 1) : 0), // Use baseElevator only for apartments 6-11
+        Water: waterValue * (isApartment1011 ? 2 : 1), // Double for apartment 10-11 since it's two merged apartments
+        DoormanWaterAndElectricity: doormanWaterElectricValue * (isApartment1011 ? 2 : 1), // Double for apartment 10-11
         AppartmentElectricity: 0, // Default to 0, will be populated when individual apartment bills are added
         Total: "0.00", // Will be calculated by frontend
         paid: false,
@@ -206,8 +262,17 @@ const createRentalEntriesForNewBill = async (month, year, electricityWaterRecord
         newEntry.Comments = "0.00";
       }
 
-      await apartmentModel.create(newEntry);
+      const createdEntry = await apartmentModel.create(newEntry);
       console.log(`✅ Created rental entry for apartment ${aptNumber} for ${month}/${year}`);
+      
+      // Debug what was actually saved for apartment 10-11
+      if (isApartment1011) {
+        console.log(`🗄️ DEBUG Saved entry for Apartment 10-11:`, {
+          Water: createdEntry.Water,
+          DoormanWaterAndElectricity: createdEntry.DoormanWaterAndElectricity,
+          Doorman: createdEntry.Doorman
+        });
+      }
     }
 
     console.log(`🎉 Successfully created rental entries for all apartments for ${month}/${year}`);
@@ -260,7 +325,7 @@ router.get("/base-values/:apartmentNumber", async (req, res) => {
 router.put("/base-values/:apartmentNumber", async (req, res) => {
   try {
     const { apartmentNumber } = req.params;
-    const { baseRent, baseDoorman, baseMaintenance, baseCorridor, baseCarPrice, garageKeeperFees, tenant, tenantContactInfo, updatedBy } = req.body;
+    const { baseRent, baseDoorman, baseMaintenance, baseCorridor, baseElevator, baseCarPrice, garageKeeperFees, tenant, tenantContactInfo, updatedBy } = req.body;
     
     // Validate required fields (baseCorridor is optional, only for pharmacy)
     if (baseRent === undefined || baseDoorman === undefined || baseMaintenance === undefined) {
@@ -273,6 +338,7 @@ router.put("/base-values/:apartmentNumber", async (req, res) => {
       baseDoorman: parseFloat(baseDoorman),
       baseMaintenance: parseFloat(baseMaintenance),
       baseCorridor: baseCorridor !== undefined ? parseFloat(baseCorridor) : null,
+      baseElevator: baseElevator !== undefined ? parseFloat(baseElevator) : 0,
       baseCarPrice: baseCarPrice !== undefined ? parseFloat(baseCarPrice) : 200,
       garageKeeperFees: garageKeeperFees !== undefined ? parseFloat(garageKeeperFees) : 50,
       tenant: tenant || "",
@@ -1156,7 +1222,7 @@ router.post("/electricity/:name", async (req, res) => {
       existing.AppartmentsFiveToEleven66 = 0.66*Number(electricity)/6;
       existing.TotalForAllToFive = (0.33 * Number(electricity)/5) + Number(reda)/11;
       existing.TotalForAllTo11 = (0.66 * Number(electricity)/6) + Number(reda)/11;
-      existing.WaterBillDivided = Number(Number(water)/11);
+      existing.WaterBillDivided = Number(Number(water)/13);
       existing.TotalSplitAppartments = Number(Number(reda)/11);
       existing.comments = comments;
 
@@ -1186,7 +1252,7 @@ router.post("/electricity/:name", async (req, res) => {
       electricity6_11 : 0.66*Number(electricity)/6,
       TotalForAllToFive : (0.33 * Number(electricity)/5) + Number(reda)/11,
       TotalForAllTo11 : (0.66 * Number(electricity)/6) + Number(reda)/11,
-      WaterBillDivided : Number(Number(water)/11),
+      WaterBillDivided : Number(Number(water)/13),
       TotalSplitAppartments : Number(Number(reda)/11),
       comments});
 

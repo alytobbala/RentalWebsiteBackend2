@@ -26,6 +26,11 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: true,
             defaultValue: 0,
         },
+        baseElevator: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+        },
         baseCarPrice: {
             type: DataTypes.DECIMAL(10, 2),
             allowNull: false,
